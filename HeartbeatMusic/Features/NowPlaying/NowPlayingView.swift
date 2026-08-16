@@ -151,8 +151,13 @@ struct NowPlayingView: View {
                         if !viewModel.spotifyPlaylists.isEmpty {
                             Picker("Playlist", selection: $viewModel.selectedSpotifyPlaylistID) {
                                 ForEach(viewModel.spotifyPlaylists) { playlist in
-                                    Text("\(playlist.name) (\(playlist.itemCount))")
-                                        .tag(playlist.id)
+                                    if let saved = viewModel.importedCatalogs[playlist.id] {
+                                        Text("✓ \(playlist.name) (\(saved.tracks.count) matched)")
+                                            .tag(playlist.id)
+                                    } else {
+                                        Text("\(playlist.name) (\(playlist.itemCount))")
+                                            .tag(playlist.id)
+                                    }
                                 }
                             }
                             .pickerStyle(.menu)
@@ -163,6 +168,26 @@ struct NowPlayingView: View {
                             }), let spotifyURL = playlist.spotifyURL {
                                 Link("Open selected playlist in Spotify", destination: spotifyURL)
                                     .font(.caption)
+                            }
+
+                            if let saved = viewModel.importedCatalogs[viewModel.selectedSpotifyPlaylistID] {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Label(
+                                        "Previously matched: \(saved.tracks.count) tracks",
+                                        systemImage: "checkmark.circle.fill"
+                                    )
+                                    .foregroundStyle(.green)
+                                    .font(.caption.weight(.semibold))
+
+                                    Text("Saved \(saved.importedAt.formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+
+                                    Button("Use saved BPM catalog") {
+                                        viewModel.useSavedCatalogForSelectedPlaylist()
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
                             }
 
                             Button {

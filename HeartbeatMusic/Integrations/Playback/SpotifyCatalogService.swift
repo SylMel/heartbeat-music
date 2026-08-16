@@ -10,6 +10,7 @@ struct SpotifyPlaylist: Identifiable, Equatable, Sendable {
 }
 
 struct SpotifyCatalogSnapshot: Codable, Equatable, Sendable {
+    let playlistID: String?
     let playlistName: String
     let tracks: [Track]
     let importedAt: Date
@@ -19,6 +20,7 @@ struct SpotifyCatalogSnapshot: Codable, Equatable, Sendable {
 struct SpotifyCatalogImportResult: Sendable {
     let snapshot: SpotifyCatalogSnapshot
     let spotifyItemCount: Int
+    let lookupFailureCount: Int
 }
 
 enum SpotifyCatalogError: LocalizedError {
@@ -50,9 +52,14 @@ enum SpotifyCatalogError: LocalizedError {
                 message ?? "Spotify returned an error (\(code))."
             }
         case let .bpmStatus(code):
-            code == 401 || code == 403
-                ? "The GetSongBPM API key was not accepted."
-                : "GetSongBPM returned an error (\(code))."
+            switch code {
+            case 401, 403:
+                "The GetSongBPM API key was not accepted."
+            case 429:
+                "GetSongBPM is receiving too many requests. Please wait and try again."
+            default:
+                "GetSongBPM returned an error (\(code))."
+            }
         case .noTracks:
             "That playlist does not contain playable Spotify tracks."
         case .noBPMMatches:
@@ -88,19 +95,35 @@ struct SpotifyCatalogService {
 
         var bpmCache = store.loadBPMCache()
         var tracks: [Track] = []
+        var lookupFailureCount = 0
 
         for (index, spotifyTrack) in spotifyTracks.enumerated() {
             let bpm: Double?
             if let cached = bpmCache[spotifyTrack.uri] {
                 bpm = cached
             } else {
-                bpm = try await bpmAPI.bpm(
-                    title: spotifyTrack.title,
-                    artist: spotifyTrack.artist,
-                    apiKey: key
-                )
-                if let bpm {
-                    bpmCache[spotifyTrack.uri] = bpm
+                do {
+                    bpm = try await bpmAPI.bpm(
+                        title: spotifyTrack.title,
+                        artist: spotifyTrack.artist,
+                        apiKey: key
+                    )
+                    if let bpm {
+                        bpmCache[spotifyTrack.uri] = bpm
+                        // Preserve completed work even if a later song lookup fails.
+                        try? store.saveBPMCache(bpmCache)
+                    }
+                } catch let error as SpotifyCatalogError {
+                    switch error {
+                    case .bpmStatus(401), .bpmStatus(403), .bpmStatus(429):
+                        throw error
+                    default:
+                        lookupFailureCount += 1
+                        bpm = nil
+                    }
+                } catch {
+                    lookupFailureCount += 1
+                    bpm = nil
                 }
             }
 
@@ -120,6 +143,7 @@ struct SpotifyCatalogService {
         guard !tracks.isEmpty else { throw SpotifyCatalogError.noBPMMatches }
 
         let snapshot = SpotifyCatalogSnapshot(
+            playlistID: playlist.id,
             playlistName: playlist.name,
             tracks: tracks,
             importedAt: Date(),
@@ -127,11 +151,19 @@ struct SpotifyCatalogService {
         )
         try store.save(snapshot: snapshot)
         try? store.saveBPMCache(bpmCache)
-        return SpotifyCatalogImportResult(snapshot: snapshot, spotifyItemCount: spotifyTracks.count)
+        return SpotifyCatalogImportResult(
+            snapshot: snapshot,
+            spotifyItemCount: spotifyTracks.count,
+            lookupFailureCount: lookupFailureCount
+        )
     }
 
     func cachedCatalog() -> SpotifyCatalogSnapshot? {
         store.loadSnapshot()
+    }
+
+    func cachedCatalogs() -> [String: SpotifyCatalogSnapshot] {
+        store.loadSnapshots()
     }
 }
 
@@ -255,6 +287,7 @@ private struct GetSongBPMClient {
             URLQueryItem(name: "limit", value: "10")
         ]
         var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 20
         request.setValue(apiKey, forHTTPHeaderField: "X-API-KEY")
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -302,6 +335,16 @@ private struct SpotifyCatalogStore {
 
     func save(snapshot: SpotifyCatalogSnapshot) throws {
         try write(snapshot, named: "spotify-catalog.json")
+        guard let playlistID = snapshot.playlistID else { return }
+        var snapshots = loadSnapshots()
+        snapshots[playlistID] = snapshot
+        try write(snapshots, named: "spotify-catalogs.json")
+    }
+
+    func loadSnapshots() -> [String: SpotifyCatalogSnapshot] {
+        guard let url = directory?.appendingPathComponent("spotify-catalogs.json"),
+              let data = try? Data(contentsOf: url) else { return [:] }
+        return (try? JSONDecoder().decode([String: SpotifyCatalogSnapshot].self, from: data)) ?? [:]
     }
 
     func loadBPMCache() -> [String: Double] {

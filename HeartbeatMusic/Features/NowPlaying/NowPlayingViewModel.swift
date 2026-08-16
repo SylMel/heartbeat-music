@@ -20,6 +20,7 @@ final class NowPlayingViewModel: ObservableObject {
     @Published private(set) var activeCatalogName: String
     @Published private(set) var activeCatalogTrackCount: Int
     @Published private(set) var hasBPMAPIKey: Bool
+    @Published private(set) var importedCatalogs: [String: SpotifyCatalogSnapshot]
     @Published var selectedSpotifyPlaylistID: String = ""
     @Published var bpmAPIKeyInput: String = ""
     @Published var heartRateInput: HeartRateInputKind = .simulator {
@@ -72,7 +73,12 @@ final class NowPlayingViewModel: ObservableObject {
         tracks: [Track]
     ) {
         let heartRateSource = SimulatedHeartRateSource()
-        let cachedCatalog = SpotifyCatalogService().cachedCatalog()
+        let catalogService = SpotifyCatalogService()
+        let cachedCatalog = catalogService.cachedCatalog()
+        var cachedCatalogs = catalogService.cachedCatalogs()
+        if let cachedCatalog, let playlistID = cachedCatalog.playlistID {
+            cachedCatalogs[playlistID] = cachedCatalog
+        }
         let startingTracks = cachedCatalog?.tracks.isEmpty == false
             ? cachedCatalog!.tracks
             : tracks
@@ -82,6 +88,7 @@ final class NowPlayingViewModel: ObservableObject {
         self.tracks = startingTracks
         activeCatalogName = cachedCatalog?.playlistName ?? "Demo catalog"
         activeCatalogTrackCount = startingTracks.count
+        importedCatalogs = cachedCatalogs
         catalogMessage = cachedCatalog.map {
             "Using \($0.tracks.count) BPM-matched tracks from \($0.playlistName)"
         } ?? "Using the built-in demo catalog"
@@ -201,6 +208,7 @@ final class NowPlayingViewModel: ObservableObject {
 
         isCatalogBusy = true
         catalogProgress = "Reading \(playlist.name)…"
+        catalogMessage = "Importing \(playlist.name)…"
         Task {
             do {
                 let result = try await catalogService.importPlaylist(
@@ -213,12 +221,17 @@ final class NowPlayingViewModel: ObservableObject {
                     }
                 }
                 activateCatalog(result.snapshot.tracks, name: result.snapshot.playlistName)
+                importedCatalogs[playlist.id] = result.snapshot
                 let unmatched = result.snapshot.unmatchedCount
-                catalogMessage = unmatched == 0
-                    ? "All \(result.spotifyItemCount) tracks are ready for heart-rate matching."
-                    : "Ready: \(result.snapshot.tracks.count) tracks. \(unmatched) had no reliable BPM match."
+                if unmatched == 0 {
+                    catalogMessage = "All \(result.spotifyItemCount) tracks are ready for heart-rate matching."
+                } else if result.lookupFailureCount > 0 {
+                    catalogMessage = "Ready: \(result.snapshot.tracks.count) tracks. \(unmatched) were skipped, including \(result.lookupFailureCount) temporary lookup errors."
+                } else {
+                    catalogMessage = "Ready: \(result.snapshot.tracks.count) tracks. \(unmatched) had no reliable BPM match."
+                }
             } catch {
-                catalogMessage = error.localizedDescription
+                catalogMessage = "Could not import \(playlist.name): \(error.localizedDescription)"
             }
             catalogProgress = nil
             isCatalogBusy = false
@@ -228,6 +241,12 @@ final class NowPlayingViewModel: ObservableObject {
     func useDemoCatalog() {
         activateCatalog(MockTrackCatalog.tracks, name: "Demo catalog")
         catalogMessage = "Using the built-in demo catalog"
+    }
+
+    func useSavedCatalogForSelectedPlaylist() {
+        guard let snapshot = importedCatalogs[selectedSpotifyPlaylistID] else { return }
+        activateCatalog(snapshot.tracks, name: snapshot.playlistName)
+        catalogMessage = "Using \(snapshot.tracks.count) saved BPM-matched tracks from \(snapshot.playlistName)."
     }
 
     @discardableResult
