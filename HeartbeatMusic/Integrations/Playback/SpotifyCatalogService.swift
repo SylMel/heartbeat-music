@@ -211,25 +211,84 @@ struct SecureValueStore {
 private struct SpotifyWebAPIClient {
     func playlists(accessToken: String) async throws -> [SpotifyPlaylist] {
         var nextURL: URL? = URL(string: "https://api.spotify.com/v1/me/playlists?limit=50")
-        var playlists: [SpotifyPlaylist] = []
+        var candidates: [SpotifyPlaylistDTO] = []
 
         while let url = nextURL {
             let page: SpotifyPlaylistPage = try await request(url: url, accessToken: accessToken)
-            // In Spotify Development Mode, `items` is absent when the current
-            // user neither owns nor collaborates on a playlist. Do not offer
-            // playlists whose contents Spotify will reject with HTTP 403.
-            playlists.append(contentsOf: page.items.compactMap { dto in
-                guard dto.items != nil else { return nil }
-                return SpotifyPlaylist(
-                    id: dto.id,
-                    name: dto.name,
-                    itemCount: dto.items?.total ?? 0,
-                    spotifyURL: dto.externalURLs?.spotify.flatMap(URL.init(string:))
-                )
-            })
+            candidates.append(contentsOf: page.items)
             nextURL = page.next.flatMap(URL.init(string:))
         }
+
+        // Spotify may include followed playlists in /me/playlists even though
+        // Development Mode rejects their contents. Probe the real items
+        // endpoint in small batches and only show confirmed HTTP 2xx results.
+        var accessible: [SpotifyPlaylistDTO] = []
+        let batchSize = 6
+        for start in stride(from: 0, to: candidates.count, by: batchSize) {
+            let end = min(start + batchSize, candidates.count)
+            let batch = Array(candidates[start..<end])
+            let readable = try await withThrowingTaskGroup(
+                of: SpotifyPlaylistDTO?.self,
+                returning: [SpotifyPlaylistDTO].self
+            ) { group in
+                for candidate in batch {
+                    group.addTask {
+                        try await canReadPlaylistItems(
+                            playlistID: candidate.id,
+                            accessToken: accessToken
+                        ) ? candidate : nil
+                    }
+                }
+
+                var results: [SpotifyPlaylistDTO] = []
+                for try await result in group {
+                    if let result { results.append(result) }
+                }
+                return results
+            }
+            accessible.append(contentsOf: readable)
+        }
+
+        let playlists = accessible.map { dto in
+            SpotifyPlaylist(
+                id: dto.id,
+                name: dto.name,
+                itemCount: dto.items?.total ?? dto.tracks?.total ?? 0,
+                spotifyURL: dto.externalURLs?.spotify.flatMap(URL.init(string:))
+            )
+        }
         return playlists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func canReadPlaylistItems(
+        playlistID: String,
+        accessToken: String
+    ) async throws -> Bool {
+        let encodedID = playlistID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+            ?? playlistID
+        guard let url = URL(
+            string: "https://api.spotify.com/v1/playlists/\(encodedID)/items?limit=1"
+        ) else {
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SpotifyCatalogError.invalidResponse
+        }
+        switch http.statusCode {
+        case 200...299:
+            return true
+        case 403:
+            return false
+        case 401, 429:
+            let message = (try? JSONDecoder().decode(SpotifyErrorEnvelope.self, from: data))?.error.message
+            throw SpotifyCatalogError.spotifyStatus(http.statusCode, message)
+        default:
+            return false
+        }
     }
 
     func tracks(
@@ -378,12 +437,12 @@ private struct SpotifyCatalogTrack: Sendable {
     let artist: String
 }
 
-private struct SpotifyPlaylistPage: Decodable {
+private struct SpotifyPlaylistPage: Decodable, Sendable {
     let items: [SpotifyPlaylistDTO]
     let next: String?
 }
 
-private struct SpotifyPlaylistDTO: Decodable {
+private struct SpotifyPlaylistDTO: Decodable, Sendable {
     let id: String
     let name: String
     let items: SpotifyItemCountDTO?
@@ -396,11 +455,11 @@ private struct SpotifyPlaylistDTO: Decodable {
     }
 }
 
-private struct SpotifyItemCountDTO: Decodable {
+private struct SpotifyItemCountDTO: Decodable, Sendable {
     let total: Int
 }
 
-private struct SpotifyExternalURLsDTO: Decodable {
+private struct SpotifyExternalURLsDTO: Decodable, Sendable {
     let spotify: String?
 }
 
