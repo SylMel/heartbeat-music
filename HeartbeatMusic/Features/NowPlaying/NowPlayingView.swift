@@ -4,6 +4,10 @@ import SwiftUI
 struct NowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
 
+    @State private var isPlaylistPickerPresented = false
+    @State private var playlistPickerItems: [SpotifyPlaylist] = []
+    @State private var playlistPickerCatalogs: [String: SpotifyCatalogSnapshot] = [:]
+
     private let accent = Color(red: 1.0, green: 0.27, blue: 0.42)
 
     var body: some View {
@@ -34,6 +38,16 @@ struct NowPlayingView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $isPlaylistPickerPresented) {
+            PlaylistPickerSheet(
+                playlists: playlistPickerItems,
+                importedCatalogs: playlistPickerCatalogs,
+                selectedPlaylistID: viewModel.selectedSpotifyPlaylistID
+            ) { playlistID in
+                viewModel.selectedSpotifyPlaylistID = playlistID
+                isPlaylistPickerPresented = false
+            }
+        }
     }
 
     private var spotifyCard: some View {
@@ -149,19 +163,28 @@ struct NowPlayingView: View {
                         .disabled(viewModel.isCatalogBusy)
 
                         if !viewModel.spotifyPlaylists.isEmpty {
-                            Picker("Playlist", selection: $viewModel.selectedSpotifyPlaylistID) {
-                                ForEach(viewModel.spotifyPlaylists) { playlist in
-                                    if let saved = viewModel.importedCatalogs[playlist.id] {
-                                        Text("✓ \(playlist.name) (\(saved.tracks.count) matched)")
-                                            .tag(playlist.id)
-                                    } else {
-                                        Text("\(playlist.name) (\(playlist.itemCount))")
-                                            .tag(playlist.id)
+                            Button {
+                                playlistPickerItems = viewModel.spotifyPlaylists
+                                playlistPickerCatalogs = viewModel.importedCatalogs
+                                isPlaylistPickerPresented = true
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("PLAYLIST")
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(.secondary)
+                                        Text(selectedPlaylistName)
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
                                     }
+                                    Spacer()
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .foregroundStyle(.green)
                                 }
+                                .padding(11)
+                                .background(.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 10))
                             }
-                            .pickerStyle(.menu)
-                            .tint(.green)
+                            .buttonStyle(.plain)
 
                             if let playlist = viewModel.spotifyPlaylists.first(where: {
                                 $0.id == viewModel.selectedSpotifyPlaylistID
@@ -228,6 +251,12 @@ struct NowPlayingView: View {
         case .spotifyNotInstalled, .failed: "exclamationmark.triangle.fill"
         case .disconnected: "music.note"
         }
+    }
+
+    private var selectedPlaylistName: String {
+        viewModel.spotifyPlaylists.first {
+            $0.id == viewModel.selectedSpotifyPlaylistID
+        }?.name ?? "Choose a playlist"
     }
 
     private var spotifyStatusColor: Color {
@@ -584,6 +613,71 @@ struct NowPlayingView: View {
                 Text(unit)
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct PlaylistPickerSheet: View {
+    let playlists: [SpotifyPlaylist]
+    let importedCatalogs: [String: SpotifyCatalogSnapshot]
+    let selectedPlaylistID: String
+    let onSelect: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private var filteredPlaylists: [SpotifyPlaylist] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return playlists }
+        return playlists.filter { $0.name.localizedStandardContains(query) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredPlaylists) { playlist in
+                Button {
+                    onSelect(playlist.id)
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(playlist.name)
+                                .foregroundStyle(.primary)
+                            if let saved = importedCatalogs[playlist.id] {
+                                Label(
+                                    "\(saved.tracks.count) BPM-matched tracks",
+                                    systemImage: "checkmark.circle.fill"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                            } else {
+                                Text("\(playlist.itemCount) Spotify tracks")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        Spacer()
+
+                        if playlist.id == selectedPlaylistID {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.green)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Choose Playlist")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, prompt: "Search playlists")
+            .overlay {
+                if filteredPlaylists.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
             }
         }
     }
