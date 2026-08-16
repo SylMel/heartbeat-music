@@ -9,7 +9,7 @@ Heartbeat Music is a native SwiftUI iPhone prototype that selects and plays musi
 3. Press **Run**.
 4. Choose a heart-rate source and select **Workout** or **Relax**. The Simulator source provides the 60–180 BPM slider. Turn **Sync to heart rate** off to freeze the current track while readings continue.
 5. Spotify authorization and Myzone Bluetooth both require a physical iPhone. Install and sign in to the Spotify app, then tap **Connect** in Heartbeat Music. The first connection asks for playback control and read-only playlist access. Spotify may resume the last-played song as part of authorization.
-6. Expand **Import a Spotify playlist**, add a GetSongBPM API key, tap **Load my playlists**, choose an owned or collaborative playlist, and tap **Import and find BPM**. The prototype examines at most the first 50 playable tracks per import.
+6. Expand **Import a Spotify playlist**, tap **Load my playlists**, choose an owned or collaborative playlist, and tap **Import and find BPM**. A developer-configured GetSongBPM key is copied into the iOS Keychain on first launch; the secure field remains available as a manual development fallback. The prototype examines at most the first 50 playable tracks per import.
 
 Run the unit tests with **Product → Test** in Xcode, or run the platform-independent package tests from Terminal:
 
@@ -69,7 +69,7 @@ The app uses Spotify's official iOS SDK 5.0.1 through Swift Package Manager. Its
 
 `SpotifyCatalogService` loads the current user's playlists with `GET /v1/me/playlists` and reads an owned or collaborative playlist through Spotify's current `GET /v1/playlists/{id}/items` endpoint. For this MVP, an import is capped at 50 playable tracks to keep the process understandable and avoid unnecessary third-party lookups.
 
-Spotify no longer makes Audio Features/BPM available to new development-mode apps, so Heartbeat Music obtains tempo separately from [GetSongBPM](https://getsongbpm.com/api). The user supplies their own free API key in the app, and the key is stored in the iOS Keychain. Each lookup must match both normalized song title and artist; common labels such as “Remastered” and “Radio Edit” are ignored, but loosely similar titles are rejected. Tracks without a reliable result are reported and excluded rather than assigned a guessed BPM.
+Spotify no longer makes Audio Features/BPM available to new development-mode apps, so Heartbeat Music obtains tempo separately from [GetSongBPM](https://getsongbpm.com/api). For local development, put `GETSONGBPM_API_KEY = your_key` in `HeartbeatMusic/Configuration/LocalSecrets.xcconfig`; that file is ignored by Git. The app copies the configured value into the iOS Keychain on first launch, so testers do not need to enter it. Each lookup must match both normalized song title and artist; common labels such as “Remastered” and “Radio Edit” are ignored, but loosely similar titles are rejected. Tracks without a reliable result are reported and excluded rather than assigned a guessed BPM.
 
 Successful URI/title/artist/BPM results and the active imported catalog are cached in Application Support on the device. The last real catalog loads again after an app restart, and **Use demo** switches back to the mock catalog at any time. When the selection engine chooses a real track, its Spotify URI flows through the existing output boundary and App Remote plays it.
 

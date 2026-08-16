@@ -85,7 +85,7 @@ final class NowPlayingViewModel: ObservableObject {
         catalogMessage = cachedCatalog.map {
             "Using \($0.tracks.count) BPM-matched tracks from \($0.playlistName)"
         } ?? "Using the built-in demo catalog"
-        hasBPMAPIKey = SecureValueStore().string(for: "getsongbpm-api-key") != nil
+        hasBPMAPIKey = Self.prepareBPMAPIKey()
         heartRate = heartRateSource.currentBPM
         smoothedHeartRate = heartRateSource.currentBPM
         targetBPM = heartRateSource.currentBPM
@@ -108,6 +108,31 @@ final class NowPlayingViewModel: ObservableObject {
 
         configureCallbacks(for: heartRateSource)
         heartRateSource.start()
+    }
+
+    private static func prepareBPMAPIKey() -> Bool {
+        let storageKey = "getsongbpm-api-key"
+        let store = SecureValueStore()
+        if store.string(for: storageKey) != nil {
+            return true
+        }
+
+        guard let configuredKey = Bundle.main.object(
+            forInfoDictionaryKey: "GetSongBPMAPIKey"
+        ) as? String else {
+            return false
+        }
+        let value = configuredKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.contains("$(") else {
+            return false
+        }
+
+        do {
+            try store.set(value, for: storageKey)
+            return true
+        } catch {
+            return false
+        }
     }
 
     func connectSpotify() {
