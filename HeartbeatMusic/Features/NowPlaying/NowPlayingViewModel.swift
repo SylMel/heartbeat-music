@@ -22,7 +22,6 @@ final class NowPlayingViewModel: ObservableObject {
     @Published private(set) var hasBPMAPIKey: Bool
     @Published private(set) var importedCatalogs: [String: SpotifyCatalogSnapshot]
     @Published var selectedSpotifyPlaylistID: String = ""
-    @Published var bpmAPIKeyInput: String = ""
     @Published var heartRateInput: HeartRateInputKind = .simulator {
         didSet {
             guard heartRateInput != oldValue else { return }
@@ -148,22 +147,6 @@ final class NowPlayingViewModel: ObservableObject {
 
     func disconnectSpotify() {
         spotifyController.disconnect()
-    }
-
-    func saveBPMAPIKey() {
-        let value = bpmAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else {
-            catalogMessage = "Paste a GetSongBPM API key first."
-            return
-        }
-        do {
-            try secureStore.set(value, for: bpmAPIKeyStorageKey)
-            bpmAPIKeyInput = ""
-            hasBPMAPIKey = true
-            catalogMessage = "BPM lookup is ready. You can now import a playlist."
-        } catch {
-            catalogMessage = "The BPM API key could not be saved securely."
-        }
     }
 
     func loadSpotifyPlaylists() {

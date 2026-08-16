@@ -9,7 +9,7 @@ Heartbeat Music is a native SwiftUI iPhone prototype that selects and plays musi
 3. Press **Run**.
 4. Choose a heart-rate source and select **Workout** or **Relax**. The Simulator source provides the 60–180 BPM slider. Turn **Sync to heart rate** off to freeze the current track while readings continue.
 5. Spotify authorization and Myzone Bluetooth both require a physical iPhone. Install and sign in to the Spotify app, then tap **Connect** in Heartbeat Music. The first connection asks for playback control and read-only playlist access. Spotify may resume the last-played song as part of authorization.
-6. Expand **Import a Spotify playlist**, tap **Load my playlists**, choose an owned or collaborative playlist, and tap **Import and find BPM**. A developer-configured GetSongBPM key is copied into the iOS Keychain on first launch; the secure field remains available as a manual development fallback. The prototype examines at most the first 50 playable tracks per import.
+6. Expand **Import a Spotify playlist**, tap **Load my playlists**, choose an owned or collaborative playlist, and tap **Import and find BPM**. A developer-configured GetSongBPM key is copied into the iOS Keychain on first launch; testers never handle this credential. The prototype examines at most the first 50 playable tracks per import.
 
 Run the unit tests with **Product → Test** in Xcode, or run the platform-independent package tests from Terminal:
 
@@ -79,7 +79,8 @@ Development Mode is appropriate for this prototype but currently limits the app 
 
 ### Current Spotify limitations
 
-- In Spotify's current Development Mode, playlist-item access is limited to playlists owned by the current user or playlists where they are a collaborator. A followed playlist owned by someone else may appear in the list but return `403` when imported.
+- In Spotify's current Development Mode, playlist-item access is limited to playlists owned by the current user or playlists where they are a collaborator.
+- The app filters out playlists whose `items` metadata is absent, so only owned or collaborative playlists appear. To use another playlist during development, open it in Spotify and choose **Add to other playlist** to create an owned copy.
 - The Spotify user must be added to the app's allowlist, and the app owner must have Premium.
 - The BPM provider may not recognize every exact release or version. Unmatched tracks are intentionally skipped.
 - Spotify and GetSongBPM network calls happen only while importing. Heart-rate matching uses the cached local catalog afterward.

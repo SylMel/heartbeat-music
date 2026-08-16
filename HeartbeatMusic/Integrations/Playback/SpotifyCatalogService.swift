@@ -37,7 +37,7 @@ enum SpotifyCatalogError: LocalizedError {
         case .noAccessToken:
             "Connect Spotify before loading playlists."
         case .missingBPMAPIKey:
-            "Add your GetSongBPM API key before importing a playlist."
+            "BPM matching is not configured in this build."
         case .invalidResponse:
             "A music service returned an unexpected response."
         case let .spotifyStatus(code, message):
@@ -215,11 +215,15 @@ private struct SpotifyWebAPIClient {
 
         while let url = nextURL {
             let page: SpotifyPlaylistPage = try await request(url: url, accessToken: accessToken)
-            playlists.append(contentsOf: page.items.map { dto in
-                SpotifyPlaylist(
+            // In Spotify Development Mode, `items` is absent when the current
+            // user neither owns nor collaborates on a playlist. Do not offer
+            // playlists whose contents Spotify will reject with HTTP 403.
+            playlists.append(contentsOf: page.items.compactMap { dto in
+                guard dto.items != nil else { return nil }
+                return SpotifyPlaylist(
                     id: dto.id,
                     name: dto.name,
-                    itemCount: dto.items?.total ?? dto.tracks?.total ?? 0,
+                    itemCount: dto.items?.total ?? 0,
                     spotifyURL: dto.externalURLs?.spotify.flatMap(URL.init(string:))
                 )
             })

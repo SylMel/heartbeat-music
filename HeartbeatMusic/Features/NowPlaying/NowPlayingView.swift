@@ -121,37 +121,28 @@ struct NowPlayingView: View {
                 DisclosureGroup("Import a Spotify playlist") {
                     VStack(alignment: .leading, spacing: 12) {
                         if viewModel.hasBPMAPIKey {
-                            Label("BPM lookup ready", systemImage: "checkmark.shield.fill")
+                            Label("BPM matching ready", systemImage: "checkmark.shield.fill")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.green)
                         } else {
-                            Text("Spotify supplies the songs; GetSongBPM supplies their tempos.")
+                            Label("BPM matching is unavailable in this build", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(
+                                "You can only select playlists that you've built or collaborated on.",
+                                systemImage: "person.2.fill"
+                            )
+                            .font(.caption.weight(.semibold))
+
+                            Text("To use another playlist, open it in Spotify and choose “Add to other playlist” to create your own copy.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-
-                        HStack {
-                            SecureField(
-                                viewModel.hasBPMAPIKey
-                                    ? "Replace BPM API key (optional)"
-                                    : "GetSongBPM API key",
-                                text: $viewModel.bpmAPIKeyInput
-                            )
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .padding(10)
-                            .background(.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 10))
-
-                            Button("Save") {
-                                viewModel.saveBPMAPIKey()
-                            }
-                            .disabled(viewModel.bpmAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-
-                        Link(destination: URL(string: "https://getsongbpm.com/api")!) {
-                            Label("Get a free API key · BPM data by GetSongBPM.com", systemImage: "arrow.up.right.square")
-                                .font(.caption)
-                        }
+                        .padding(11)
+                        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
 
                         Button {
                             viewModel.loadSpotifyPlaylists()
